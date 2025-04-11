@@ -1,33 +1,37 @@
 const Task = require("../models/taskModel");
 const User = require("../models/userModel");
 const validateAddTask = require("../utils/taskValidation");
-
 const AddTask = async (req, res) => {
     try {
         const userId = req.query.userId;
         const { title, description, priority, status, dueDate } = req.body;
 
-        const errors = validateAddTask({ name, email, password, passwordC });
-    
+        const errors = validateAddTask({ title, description, priority, status, dueDate });
         if (Object.keys(errors).length > 0) return res.status(400).json(errors);
+
+        const foundUser = await User.findById(userId);
+        if (!foundUser) return res.status(404).json({ message: "User not found" });
 
         const newTask = new Task({
             title,
             description,
             dueDate,
             priority,
-            status
+            status,
+            user: userId
         });
 
         await newTask.save();
 
-        const user = await User.findById(userId);
-        user.tasks.push(newTask._id);
-        await user.save();
+        if (foundUser.tasks) {
+            foundUser.tasks.push(newTask._id);
+            await foundUser.save();
+        }
 
         res.status(201).json(newTask);
 
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: "Something went wrong while adding the task" });
     }
 };
@@ -87,50 +91,43 @@ const DeleteTask = async (req, res) => {
     }
 };
 
-const GetTask = async(req,res) => {
-    try{
-    const task = await Task.findById(req.params.id);
-
-    if(!task) return res.status(404).json({message : "task not found"});
-
-    res.status(200).json(task);
-
-}catch(error){
-    res.status(500).json({message : "something went wrong while getting the task"});
-}
-}
-
-const GetTasksByStatus = async (req, res) => {
-    const { userId, status } = req.query; 
-    
+const getTodayTasksByUser = async (req, res) => {
     try {
-        if (!status) {
-            return res.status(400).json({ message: "Status is required" });
-        }
+        const userId = req.params.id;
+        const now = new Date();
 
-        if (!userId) {
-            return res.status(400).json({ message: "User ID is required" });
-        }
+        const startOfDay = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            0, 0, 0, 0
+        );
+        
+        const endOfDay = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23, 59, 59, 999
+        );
+    
 
-        const user = await User.findById(userId);
-
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        const tasks = await Task.find({ 
-            _id: { $in: user.tasks }, 
-            status: status 
+        const tasks = await Task.find({
+            user: userId,
+            dueDate: {
+                $gte: startOfDay,
+                $lte: endOfDay
+            }
         });
 
         if (tasks.length === 0) {
-            return res.status(404).json({ message: "No tasks found for this user with the given status" });
+            return res.status(404).json({ message: "No tasks found for today" });
         }
 
         res.status(200).json(tasks);
 
     } catch (error) {
-        res.status(500).json({ message: "Something went wrong while getting tasks" });
+        console.error(error);
+        res.status(500).json({ message: "Something went wrong while fetching today's tasks" });
     }
 };
 
@@ -159,7 +156,6 @@ module.exports = {
     AddTask,
     EditTask,
     DeleteTask,
-    GetTask,
-    GetTasksByStatus,
+    getTodayTasksByUser,
     GetAllTasks
 }
